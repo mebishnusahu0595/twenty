@@ -63,13 +63,13 @@ import { FlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metada
 import { buildFieldMapsFromFlatObjectMetadata } from 'src/engine/metadata-modules/flat-field-metadata/utils/build-field-maps-from-flat-object-metadata.util';
 import { isFlatFieldMetadataOfType } from 'src/engine/metadata-modules/flat-field-metadata/utils/is-flat-field-metadata-of-type.util';
 import { FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
-import { FieldCalculationService } from 'src/engine/api/common/field-calculation/field-calculation.service';
+import { ComputedFieldService } from 'src/engine/api/common/computed-field/computed-field.service';
 
 @Injectable()
 export class DataArgProcessorService {
   constructor(
     private readonly recordPositionService: RecordPositionService,
-    private readonly fieldCalculationService: FieldCalculationService,
+    private readonly computedFieldService: ComputedFieldService,
   ) {}
 
   async process({
@@ -79,6 +79,7 @@ export class DataArgProcessorService {
     flatFieldMetadataMaps,
     flatObjectMetadataMaps,
     shouldBackfillPositionIfUndefined = true,
+    existingRecords,
   }: {
     partialRecordInputs: Partial<ObjectRecord>[] | undefined;
     authContext: WorkspaceAuthContext;
@@ -172,15 +173,15 @@ export class DataArgProcessorService {
       processedRecords.push(processedRecord);
     }
 
-    return this.calculateFields({
+    return this.applyComputedFields({
       processedRecords,
       flatFieldMetadataMaps,
       flatObjectMetadata,
-      existingRecords: arguments[0].existingRecords,
+      existingRecords,
     });
   }
 
-  private async calculateFields({
+  private async applyComputedFields({
     processedRecords,
     flatFieldMetadataMaps,
     flatObjectMetadata,
@@ -191,38 +192,44 @@ export class DataArgProcessorService {
     flatObjectMetadata: FlatObjectMetadata;
     existingRecords?: Partial<ObjectRecord>[];
   }): Promise<Partial<ObjectRecord>[]> {
-    const fields = Object.values(flatFieldMetadataMaps).flat();
-    const objectFields = fields.filter(
+    // Correct: iterate field objects from byUniversalIdentifier, not the maps object itself.
+    const allFields = Object.values(
+      flatFieldMetadataMaps.byUniversalIdentifier,
+    ).filter(isDefined);
+
+    const objectFields = allFields.filter(
       (f) => f.objectMetadataId === flatObjectMetadata.id,
     );
-    const calculatedFields =
-      this.fieldCalculationService.getCalculatedFields(objectFields);
 
-    if (calculatedFields.length === 0) {
+    const computedFields =
+      this.computedFieldService.getComputedFields(objectFields);
+
+    if (computedFields.length === 0) {
       return processedRecords;
     }
 
-    const sortedCalculatedFields =
-      this.fieldCalculationService.sortFieldsByDependency(calculatedFields);
+    // Topo-sort: throws CommonQueryRunnerException on circular deps
+    const sortedComputedFields =
+      this.computedFieldService.sortByDependency(computedFields);
 
     return processedRecords.map((record, index) => {
       const existingRecord = existingRecords?.[index] ?? {};
-      const fullRecord = { ...existingRecord, ...record };
+      // Merge existing values with the incoming partial update for full context
+      const fullRecord: Record<string, unknown> = { ...existingRecord, ...record };
 
-      for (const field of sortedCalculatedFields) {
-        const formula = field.settings?.calculationFormula;
-        if (formula) {
-          try {
-            record[field.name] = this.fieldCalculationService.evaluate(
-              formula,
-              fullRecord,
-            );
-            fullRecord[field.name] = record[field.name];
-          } catch (error) {
-            // Log error or set to null/error value
-            console.error(error.message);
-          }
-        }
+      for (const field of sortedComputedFields) {
+        const formula = (field.settings as any)?.computedFormula as string;
+
+        // evaluate() throws CommonQueryRunnerException on failure — no swallowing
+        const result = this.computedFieldService.evaluate(
+          formula,
+          fullRecord,
+          field.name,
+        );
+
+        record[field.name] = result;
+        // Update fullRecord so subsequent computed fields can depend on this one
+        fullRecord[field.name] = result;
       }
 
       return record;

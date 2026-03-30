@@ -103,6 +103,7 @@ export {
 } from './FieldMetadataOptions';
 export type {
   FieldNumberVariant,
+  FieldMetadataComputedSettings,
   FieldMetadataSettingsMapping,
   AllFieldMetadataSettings,
   FieldMetadataSettings,

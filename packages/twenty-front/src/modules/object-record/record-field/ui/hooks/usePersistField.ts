@@ -157,7 +157,7 @@ export const usePersistField = ({
       const fieldIsCalculated =
         isFieldNumber(fieldDefinition) &&
         !!(fieldDefinition.metadata as FieldNumberMetadata).settings
-          ?.calculationFormula;
+          ?.computedFormula?.trim();
 
       const fieldIsUIReadOnly =
         (fieldDefinition.metadata.isUIReadOnly ?? false) || fieldIsCalculated;

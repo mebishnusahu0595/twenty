@@ -31,6 +31,7 @@ export type FieldTextMetadata = BaseFieldMetadata & {
   placeHolder: string;
   settings?: {
     displayedMaxRows?: number;
+    computedFormula?: string;
   };
 };
 
@@ -75,7 +76,7 @@ export type FieldNumberMetadata = BaseFieldMetadata & {
   settings?: {
     decimals?: number;
     type?: FieldNumberVariant;
-    calculationFormula?: string;
+    computedFormula?: string;
   };
 };
 

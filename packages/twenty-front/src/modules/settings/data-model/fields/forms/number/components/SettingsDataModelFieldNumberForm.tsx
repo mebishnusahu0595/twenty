@@ -5,6 +5,7 @@ import { useFieldMetadataItemById } from '@/object-metadata/hooks/useFieldMetada
 import { numberFieldDefaultValueSchema } from '@/object-record/record-field/ui/validation-schemas/numberFieldDefaultValueSchema';
 import { Separator } from '@/settings/components/Separator';
 import { SettingsOptionCardContentCounter } from '@/settings/components/SettingsOptions/SettingsOptionCardContentCounter';
+import { SettingsOptionCardContentInput } from '@/settings/components/SettingsOptions/SettingsOptionCardContentInput';
 import { SettingsOptionCardContentSelect } from '@/settings/components/SettingsOptions/SettingsOptionCardContentSelect';
 import { NUMBER_DATA_MODEL_SELECT_OPTIONS } from '@/settings/data-model/fields/forms/number/constants/NumberDataModelSelectOptions';
 import { Select } from '@/ui/input/components/Select';
@@ -12,12 +13,15 @@ import { plural } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react/macro';
 import { IconDecimal, IconEye, IconFunction } from 'twenty-ui/display';
 import { DEFAULT_DECIMAL_VALUE } from '~/utils/format/formatNumber';
-import { SettingsOptionCardContentInput } from '@/settings/components/SettingsOptions/SettingsOptionCardContentInput';
 import { TextInput } from '@/ui/input/components/TextInput';
 
 export const settingsDataModelFieldNumberFormSchema = z.object({
   settings: numberFieldDefaultValueSchema.extend({
-    calculationFormula: z.string().optional(),
+    // Normalize empty string to undefined — an empty formula means "not computed"
+    computedFormula: z
+      .string()
+      .optional()
+      .transform((v) => (v?.trim() ? v.trim() : undefined)),
   }),
 });
 
@@ -48,7 +52,8 @@ export const SettingsDataModelFieldNumberForm = ({
         decimals:
           fieldMetadataItem?.settings?.decimals ?? DEFAULT_DECIMAL_VALUE,
         type: fieldMetadataItem?.settings?.type ?? 'number',
-        calculationFormula: fieldMetadataItem?.settings?.calculationFormula ?? '',
+        // Use computedFormula — renamed from calculationFormula
+        computedFormula: fieldMetadataItem?.settings?.computedFormula ?? undefined,
       }}
       control={control}
       render={({ field: { onChange, value } }) => {
@@ -67,11 +72,13 @@ export const SettingsDataModelFieldNumberForm = ({
                 dropdownId="number-type"
                 dropdownWidth={120}
                 value={type}
-                onChange={(value) =>
+                onChange={(newType) =>
+                  // BUG FIX: Spread `value` first to preserve computedFormula
                   onChange({
-                    type: value,
+                    ...value,
+                    type: newType,
                     decimals:
-                      value === 'shortNumber' ? DEFAULT_DECIMAL_VALUE : count,
+                      newType === 'shortNumber' ? DEFAULT_DECIMAL_VALUE : count,
                   })
                 }
                 disabled={disabled}
@@ -92,22 +99,29 @@ export const SettingsDataModelFieldNumberForm = ({
                   other: `E.g. ${(type === 'percentage' ? 99 : 1000).toFixed(count)}${type === 'percentage' ? '%' : ''} for ${count} decimals`,
                 })}
                 value={count}
-                onChange={(value) => onChange({ type: type, decimals: value })}
+                // BUG FIX: Spread `value` first to preserve computedFormula
+                onChange={(newCount) =>
+                  onChange({ ...value, decimals: newCount })
+                }
                 disabled={disabled}
                 minValue={0}
-                maxValue={100} // needs to be changed
+                maxValue={100}
               />
             )}
             <Separator />
             <SettingsOptionCardContentInput
               Icon={IconFunction}
-              title={t`Calculation formula`}
-              description={t`Excel-like formula (e.g. Price * Quantity)`}
+              title={t`Computed formula`}
+              description={t`Excel-like formula for any field type (e.g. price * quantity, concat(firstName, " ", lastName))`}
             >
               <TextInput
-                value={value?.calculationFormula ?? ''}
+                value={value?.computedFormula ?? ''}
                 onChange={(formula) =>
-                  onChange({ ...value, calculationFormula: formula })
+                  onChange({
+                    ...value,
+                    // Normalize empty string to undefined on change
+                    computedFormula: formula.trim() || undefined,
+                  })
                 }
                 disabled={disabled}
                 placeholder={t`Enter formula`}

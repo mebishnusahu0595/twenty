@@ -36,13 +36,48 @@ export class CommonUpdateOneQueryRunnerService extends CommonBaseQueryRunnerServ
   }
   protected readonly operationName = CommonQueryNames.UPDATE_ONE;
 
+  /**
+   * run() executes INSIDE executeInWorkspaceContext(), so the AsyncLocalStorage
+   * workspace context is properly set here. This is the correct place to:
+   *   1. Fetch the existing record (for computed field context)
+   *   2. Process the incoming data args (validation + computed fields)
+   *   3. Delegate the actual DB update to commonUpdateManyQueryRunnerService
+   */
   async run(
     args: CommonExtendedInput<UpdateOneQueryArgs>,
     queryRunnerContext: CommonExtendedQueryRunnerContext,
   ): Promise<ObjectRecord> {
+    const {
+      repository,
+      authContext,
+      flatObjectMetadata,
+      flatFieldMetadataMaps,
+      flatObjectMetadataMaps,
+    } = queryRunnerContext;
+
+    // Fetch the existing record here — inside the workspace context where
+    // the ORM's AsyncLocalStorage is correctly initialized.
+    const existingRecord = await repository.findOne({
+      where: { id: args.id } as any,
+    });
+
+    // Process data args with the existing record available for computed fields.
+    const processedData = (
+      await this.dataArgProcessor.process({
+        partialRecordInputs: [args.data],
+        authContext,
+        flatObjectMetadata,
+        flatFieldMetadataMaps,
+        flatObjectMetadataMaps,
+        shouldBackfillPositionIfUndefined: false,
+        existingRecords: existingRecord ? [existingRecord] : undefined,
+      })
+    )[0];
+
     const result = await this.commonUpdateManyQueryRunnerService.run(
       {
         ...args,
+        data: processedData,
         filter: { id: { eq: args.id } },
       },
       queryRunnerContext,
@@ -61,39 +96,17 @@ export class CommonUpdateOneQueryRunnerService extends CommonBaseQueryRunnerServ
     return result[0];
   }
 
+  /**
+   * computeArgs() runs BEFORE executeInWorkspaceContext() sets the workspace
+   * context. Therefore, we MUST NOT do any DB access or call dataArgProcessor
+   * here. Only pure, synchronous validation is appropriate.
+   */
   async computeArgs(
     args: CommonInput<UpdateOneQueryArgs>,
-    queryRunnerContext: CommonBaseQueryRunnerContext,
+    _queryRunnerContext: CommonBaseQueryRunnerContext,
   ): Promise<CommonInput<UpdateOneQueryArgs>> {
-    const {
-      authContext,
-      flatObjectMetadata,
-      flatFieldMetadataMaps,
-      flatObjectMetadataMaps,
-    } = queryRunnerContext;
-
-    const dataSource =
-      await this.globalWorkspaceOrmManager.getGlobalWorkspaceDataSource();
-    const repository = dataSource.getRepository(flatObjectMetadata.nameSingular);
-
-    const existingRecord = await repository.findOne({
-      where: { id: args.id },
-    });
-
-    return {
-      ...args,
-      data: (
-        await this.dataArgProcessor.process({
-          partialRecordInputs: [args.data],
-          authContext,
-          flatObjectMetadata,
-          flatFieldMetadataMaps,
-          flatObjectMetadataMaps,
-          shouldBackfillPositionIfUndefined: false,
-          existingRecords: existingRecord ? [existingRecord] : undefined,
-        })
-      )[0],
-    };
+    // No DB access here. DB access and data processing moved to run().
+    return args;
   }
 
   async processQueryResult(

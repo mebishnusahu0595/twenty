@@ -20,16 +20,21 @@ export enum DateDisplayFormat {
 
 export type FieldNumberVariant = 'number' | 'percentage';
 
+// Shared base for any field type that can have a computed formula.
+// computedFormula === undefined means the field is NOT computed.
+export type FieldMetadataComputedSettings = {
+  computedFormula?: string;
+};
+
 type FieldMetadataNumberSettings = {
   dataType?: NumberDataType;
   decimals?: number;
   type?: FieldNumberVariant;
-  calculationFormula?: string;
-};
+} & FieldMetadataComputedSettings;
 
 type FieldMetadataTextSettings = {
   displayedMaxRows?: number;
-};
+} & FieldMetadataComputedSettings;
 
 type FieldMetadataDateSettings = {
   displayFormat?: DateDisplayFormat;
